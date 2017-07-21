@@ -1,0 +1,78 @@
+<mets:mets xmlns:mets="http://www.loc.gov/METS/" xmlns:lc="http://www.loc.gov/mets/profiles" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:rights="http://www.loc.gov/rights/" xmlns:mods="http://www.loc.gov/mods/v3" xmlns:bib="http://www.loc.gov/mets/profiles/modsBibCard" OBJID="apis:1294" PROFILE="um:library:lit:displayCard">
+  <mets:metsHdr LASTMODDATE="2016-08-09T12:12:51.320141-04:00"/>
+
+  <mets:dmdSec ID="101R.TIF">
+    <mets:mdWrap MDTYPE="MODS">
+      <mets:xmlData>
+        <mods:mods>
+          <mods:note>Verso</mods:note>
+        </mods:mods>
+      </mets:xmlData>
+    </mets:mdWrap>
+  </mets:dmdSec>
+
+  <mets:structMap TYPE="relatedViews">
+    <mets:div LABEL="front summary" TYPE="view">
+      <mets:div TYPE="row">
+        <mets:div TYPE="column" DMDID="101R.TIF">
+          <mets:mptr LOCTYPE="OTHER" OTHERLOCTYPE="system" xlink:href="file:apis:101R" />
+        </mets:div>
+      </mets:div>
+    </mets:div>
+    <mets:div LABEL="front detail" TYPE="view">
+      <mets:div TYPE="row">
+        <mets:div TYPE="column" DMDID="101R_A.TIF">
+          <mets:mptr LOCTYPE="OTHER" OTHERLOCTYPE="system" xlink:href="file:apis:101R_A" />
+        </mets:div>
+        <mets:div TYPE="column" DMDID="101R_B.TIF">
+          <!-- no corresponding file to link to -->
+        </mets:div>
+        <mets:div TYPE="column" DMDID="101R_C.TIF">
+          <mets:mptr LOCTYPE="OTHER" OTHERLOCTYPE="system" xlink:href="file:apis:101R_C" />
+        </mets:div>
+      </mets:div>
+      <mets:div TYPE="row">
+        <mets:div TYPE="column" DMDID="101R_D.TIF">
+          <mets:mptr LOCTYPE="OTHER" OTHERLOCTYPE="system" xlink:href="file:apis:101R_D" />
+        </mets:div>
+        <mets:div TYPE="column" DMDID="101R_E.TIF">
+          <mets:mptr LOCTYPE="OTHER" OTHERLOCTYPE="system" xlink:href="file:apis:101R_E" />
+        </mets:div>
+        <mets:div TYPE="column" DMDID="101R_F.TIF">
+          <mets:mptr LOCTYPE="OTHER" OTHERLOCTYPE="system" xlink:href="file:apis:101R_F" />
+        </mets:div>
+      </mets:div>
+    </mets:div>
+    <mets:div LABEL="back summary" TYPE="view">
+      <mets:div LABEL="row">
+        <mets:div LABEL="column" DMDID="101V.TIF">
+          <mets:mptr LOCTYPE="OTHER" OTHERLOCTYPE="system" xlink:href="file:apis:101V" />
+        </mets:div>
+      </mets:div>
+    </mets:div>
+    <mets:div LABEL="back detail" TYPE="view">
+      <mets:div TYPE="row">
+        <mets:div TYPE="column" DMDID="101V_A.TIF">
+          <mets:mptr LOCTYPE="OTHER" OTHERLOCTYPE="system" xlink:href="file:apis:101V_A" />
+        </mets:div>
+        <mets:div TYPE="column" DMDID="101V_B.TIF">
+          <mets:mptr LOCTYPE="OTHER" OTHERLOCTYPE="system" xlink:href="file:apis:101V_B" />
+        </mets:div>
+        <mets:div TYPE="column" DMDID="101V_C.TIF">
+          <mets:mptr LOCTYPE="OTHER" OTHERLOCTYPE="system" xlink:href="file:apis:101V_C" />
+        </mets:div>
+      </mets:div>
+      <mets:div TYPE="row">
+        <mets:div TYPE="column" DMDID="101V_D.TIF">
+          <mets:mptr LOCTYPE="OTHER" OTHERLOCTYPE="system" xlink:href="file:apis:101V_D" />
+        </mets:div>
+        <mets:div TYPE="column" DMDID="101V_E.TIF">
+          <mets:mptr LOCTYPE="OTHER" OTHERLOCTYPE="system" xlink:href="file:apis:101V_E" />
+        </mets:div>
+        <mets:div TYPE="column" DMDID="101V_F.TIF">
+          <mets:mptr LOCTYPE="OTHER" OTHERLOCTYPE="system" xlink:href="file:apis:101V_F" />
+        </mets:div>
+      </mets:div>
+    </mets:div>
+  </mets:structMap>
+</mets:mets>
