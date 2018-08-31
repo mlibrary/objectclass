@@ -1,0 +1,22 @@
+#!/bin/bash
+
+PATH="/l/local/rbenv/bin:/l/local/rbenv/shims:$PATH"
+export PATH
+BINPATH=`dirname $0`
+# export RBENV_VERSION=`cat $BINPATH/.ruby-version`
+export BUNDLE_GEMFILE=$BINPATH/Gemfile
+if [ -f "Gemfile" ]
+    then
+    BUNDLE_GEMFILE="$PWD/Gemfile"
+fi
+
+# program="${0##*/}"
+# echo "== $program :: $@"
+
+program=$1; shift
+if [ "$program" = "" -o "$program" = "install" ]
+    then
+    exec bundle $@
+fi
+
+exec bundle exec ruby -x "$program" "$@"
