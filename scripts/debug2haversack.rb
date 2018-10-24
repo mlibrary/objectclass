@@ -13,6 +13,7 @@ require 'ostruct'
 options = OpenStruct.new
 options.output_pathname = '/quod-prep/prep/o/objectclass/.haversack'
 options.debug = false
+options.parts = { 1=> "Title", 2=>"Volume"}
 option_parser = OptionParser.new do |opts|
   opts.on "--collid [COLLID]" do |value|
     options.collid = value
@@ -23,13 +24,19 @@ option_parser = OptionParser.new do |opts|
   opts.on "--output_pathname [PATHNAME]" do |value|
     options.output_pathname = value
   end
+  opts.on "--part.1 [VALUE]" do |value|
+    options.parts[1] = value
+  end
+  opts.on "--part.2 [VALUE]" do |value|
+    options.parts[2] = value
+  end
   opts.on "--debug" do
-  	options.debug = true
+    options.debug = true
   end
 end
 option_parser.parse!(ARGV)
 
-prep = HaversackIt::Haversack::TextClass.new(collid: options[:collid], idno: options[:idno])
+prep = HaversackIt::Haversack::TextClass.new(collid: options[:collid], idno: options[:idno], parts: options[:parts])
 prep.build
 prep.save!(options[:output_pathname])
 

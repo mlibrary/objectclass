@@ -20,13 +20,16 @@ option_parser = OptionParser.new do |opts|
     options.input_pathname = value
   end
   opts.on "--debug" do
-  	options.debug = true
+    options.debug = true
   end
 end
 option_parser.parse!(ARGV)
 
 # hashing things
-builder = HaversackIt::Builder.new input_pathname: options[:input_pathname], output_pathname: options[:output_pathname]
+builder = HaversackIt::Builder.new \
+  input_pathname: options[:input_pathname],
+  output_pathname: options[:output_pathname]
+
 builder.build!
 
 STDERR.puts "-30-"

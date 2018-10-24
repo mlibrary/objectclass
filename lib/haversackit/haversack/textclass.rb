@@ -4,25 +4,20 @@ require 'net/http'
 
 module HaversackIt
   class Haversack::TextClass < Haversack
-    def initialize(collid:, idno:)
+    def initialize(collid:, idno:, parts:)
       @collid = collid
       @idno = idno.downcase
+      @parts = parts
 
       @SKIP_LABELS = ["", "UNSPEC", "UNS"]
       @div_labels = {}
       @div_types = {}
-      super
-    end
 
-    def build
-      fetch_data
-      build_common
-      build_metadata
-      build_rights
-      build_source
-      build_links
-      build_filegroups
-      build_structmaps
+      if @parts.empty?
+        @parts = { 1 => 'Title', 2 => 'Volume' }
+      end
+
+      super
     end
 
     def build_common
@@ -61,15 +56,50 @@ module HaversackIt
     end
 
     def build_links
-      # @links['memberOf'] = @xmldoc.xpath('string(//DlxsGlobals/CollGroupMembership)')
-      #   .split(":")
-      #   .reject{|v| v.empty?}
-      #   .map{|v| "urn:x-umich:group:#{v}"}
-      @links['memberOf'] = ["urn:x-umich:collection:#{@collid}"]
+      @links['memberOf'] = []
+      # @links['memberOf'] = ["urn:x-umich:collection:#{@collid}"]
       @db[:nameresolver].where(id: @idno).each do |row|
-        if row[:coll] != @collid
-          @links['memberOf'] << "urn:x-umich:collection:#{row[:coll]}"
+        colldata = @db[:Collection].where(userid: 'dlxsadm', collid: row[:coll]).first
+        @links['memberOf'] << {
+          "href" => "urn:x-umich:collection:#{row[:coll]}",
+          "title" => colldata[:collname]
+        }
+        # if row[:coll] != @collid
+        #   @links['memberOf'] << "urn:x-umich:collection:#{row[:coll]}"
+        # end
+      end
+      build_links_ispartof
+    end
+
+    def build_links_ispartof
+      @links['isPartOf'] = []
+      parts = @idno.split(".")
+      parts.pop # this volume
+
+      tmp = []
+      parts.each do |part|
+        tmp << part
+        didno = tmp.join('.')
+
+        data = {"label" => "#{@parts[tmp.length]}", "items" => []}
+
+        fetch_data_url = "https://#{DLXS_SERVICE}/cgi/t/text/text-idx?cc=#{@collid};idno=#{didno};debug=xml"
+        fetch_data_uri = URI(fetch_data_url)
+        response = Net::HTTP.get_response(fetch_data_uri)
+        doc = Nokogiri::XML(response.body)
+        doc.xpath("//Picklist/Item").each do |item|
+          idno = item.xpath("string(./ItemHeader/HEADER//IDNO[@TYPE='dlps'])")
+          title = item.xpath("string(./ItemHeader/HEADER/FILEDESC/TITLESTMT/TITLE)").gsub(/\s+/, ' ')
+          data["items"] << {
+            "title" => title,
+            "href"  => "urn:x-umich:work:#{idno}"
+          }
         end
+
+        if data["items"].length > 1
+          @links['isPartOf'] << data
+        end
+
       end
     end
 
@@ -108,7 +138,9 @@ module HaversackIt
           pb_node = p_node.at_xpath('PB')
           seq = pb_node['SEQ']
 
-          href = %Q{#xpointer(/DLPSTEXTCLASS/TEXT/BODY/DIV[@NODE="#{node_id}"]/P[PB[@SEQ=\"#{pb_node['SEQ']}\"]])}
+          ## href = %Q{#xpointer(/DLPSTEXTCLASS/TEXT/BODY/DIV[@NODE="#{node_id}"]/P[PB[@SEQ=\"#{pb_node['SEQ']}\"]])}
+          ## -- shortening after conversations with sooty
+          href = %Q{#xpointer(/DLPSTEXTCLASS/TEXT/BODY/DIV1//P[PB[@SEQ=\"#{pb_node['SEQ']}\"]][1])}
 
           @files[seq] = [] if @files[seq].nil?
           next if @files[seq] and @files[seq].index(href)
