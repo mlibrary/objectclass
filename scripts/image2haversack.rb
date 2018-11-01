@@ -6,29 +6,25 @@ exec $BINDIR/run_ruby "$0" "$@"
 BINPATH=File.dirname File.expand_path __FILE__
 $:.unshift File.join(BINPATH, '..', 'lib')
 
-require 'haversackit/haversack/text_class'
+require 'haversackit/haversack/image_class'
 require 'optparse'
 require 'ostruct'
 
+require 'pp'
+
 options = OpenStruct.new
+options.m_id = []
 options.output_pathname = '/quod-prep/prep/o/objectclass/.haversack'
 options.debug = false
-options.parts = { 1=> "Title", 2=>"Volume"}
 option_parser = OptionParser.new do |opts|
   opts.on "--collid [COLLID]" do |value|
     options.collid = value
   end
-  opts.on "--idno [IDNO]" do |value|
-    options.idno = value
+  opts.on "--m_id [M_ID]" do |value|
+    options.m_id << value
   end
   opts.on "--output_pathname [PATHNAME]" do |value|
     options.output_pathname = value
-  end
-  opts.on "--part.1 [VALUE]" do |value|
-    options.parts[1] = value
-  end
-  opts.on "--part.2 [VALUE]" do |value|
-    options.parts[2] = value
   end
   opts.on "--debug" do
     options.debug = true
@@ -36,7 +32,7 @@ option_parser = OptionParser.new do |opts|
 end
 option_parser.parse!(ARGV)
 
-prep = HaversackIt::Haversack::TextClass.new(collid: options[:collid], idno: options[:idno], parts: options[:parts])
+prep = HaversackIt::Batch::ImageClass.create(collid: options.collid, m_id: options.m_id)
 prep.build
 prep.save!(options[:output_pathname])
 

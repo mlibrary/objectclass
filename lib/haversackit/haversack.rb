@@ -8,6 +8,8 @@ require 'pathname'
 require 'pp'
 require 'nokogiri'
 
+require 'fileutils'
+
 require 'inifile'
 
 PARSE_OPTIONS = Nokogiri::XML::ParseOptions::DEFAULT_XML | Nokogiri::XML::ParseOptions::NOBLANKS
@@ -21,8 +23,12 @@ module HaversackIt
     attr_reader :identifier_pathname
 
     def initialize(**args)
-      config = IniFile.load("#{ENV['DLXSROOT']}/bin/i/image/etc/package.conf")
-      @db = Sequel.connect(adapter: 'mysql2', host: 'mysql-quod', user: config['mysql']['user'], password: config['mysql']['password'], database: 'dlxs')
+      if args[:db]
+        @db = args[:db]
+      else
+        config = IniFile.load("#{ENV['DLXSROOT']}/bin/i/image/etc/package.conf")
+        @db = Sequel.connect(adapter: 'mysql2', host: 'mysql-quod', user: config['mysql']['user'], password: config['mysql']['password'], database: 'dlxs')
+      end
       @common = {}
       @source = {}
       @links = {}
@@ -67,15 +73,26 @@ module HaversackIt
     def save!(base_path)
       output_path = File.join(base_path, @idno)
       file_output_path = File.join(output_path, "files")
+
       unless Dir.exists?(output_path)
         Dir.mkdir(output_path, 0775)
         Dir.mkdir(file_output_path, 0775)
       end
+      FileUtils.rm_f Dir.glob("#{output_path}/**/**")
 
       output_yaml(output_path, "common",   @common)
       output_yaml(output_path, "source",   @source)
       output_yaml(output_path, "links",    @links)
-      output_yaml(output_path, "metadata", @metadata)
+
+      @metadata = [@metadata].flatten
+      @metadata.each do |metadatum|
+        basename = "metadata"
+        if metadatum['@id']
+          basename += ".#{metadatum['@id']}"
+        end
+        output_yaml(output_path, basename, metadatum)
+      end
+
       output_yaml(output_path, "rights",   @rights)
 
       @filegroups.keys.each do |type|
@@ -86,7 +103,7 @@ module HaversackIt
         output_yaml(output_path, "structmap_#{type}", @structmaps[type])
       end
 
-      if @identifier_pathname
+      if true or @identifier_pathname
         @manifest.each do |file|
           if file.is_a?(Array)
             STDERR.puts "-- output: #{file[0]}"
