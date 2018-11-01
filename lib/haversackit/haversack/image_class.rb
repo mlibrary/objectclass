@@ -57,6 +57,7 @@ module HaversackIt
 
       @record = @db[data_table].where(ic_id: @m_id).first
       @record.delete(:ic_all) # it's useless
+      @record.delete(:pk_id)
       @record.delete(:dlxs_sha)
       @record.keys.each do |key|
         @record[key] = munge(@record[key])
