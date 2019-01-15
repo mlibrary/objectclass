@@ -35,6 +35,7 @@ module HaversackIt
       @assigner = Assigner.new
       @sources = {}
       @amdsecs = []
+      @manifest = []
       @fileidcache = {}
       Dir.glob("#{input_pathname}/**/*.yaml").each do |filename|
         key = File.basename(filename, '.yaml')
@@ -59,6 +60,18 @@ module HaversackIt
 
       bag.add_file("#{@identifier}/#{@identifier}.mets.xml") do |io|
         io.puts to_xml
+      end
+
+      @manifest.each do |file|
+        if file.is_a?(Array)
+          STDERR.puts "-- output: #{file[0]}"
+          bag.add_file(File.join(@identifier, file[0])) do |io|
+            io.puts file[1]
+          end
+        # elsif file.is_a?(Pathname) and not File.symlink?(File.join(file_output_path, file.basename))
+        #   STDERR.puts "-- linking: #{file.basename}"
+        #   File.symlink(file, File.join(file_output_path, file.basename))
+        end
       end
 
       FileUtils.cd(@input_pathname) do
@@ -191,47 +204,57 @@ module HaversackIt
     end
 
     def build_metadata_dmdsec
-      source = @sources[:metadata]
-      return unless source
+      sources = @sources.keys.grep(/metadata/)
+      return if sources.empty?
 
-      dmd_sec = METS::MetadataSection.new 'dmdSec', id: next_id('DMD')
+      sources.each do |source|
 
-      data = source[:data]
-      params = {}
-      # this should probably be xlink:href
-      if data['href']
-        params[:xlink] = { href: data['href'] }
-        if data['xptr'] then
-          params[:xptr] = "xpointer(#{data['xptr']})"
+        data = @sources[source][:data]
+
+        dmd_id = generate_id('DMD', data['@id'])
+
+        dmd_sec = METS::MetadataSection.new 'dmdSec', id: dmd_id
+
+        params = {}
+        # this should probably be xlink:href
+        if data['href']
+          params[:xlink] = { href: data['href'] }
+          if data['xptr'] then
+            params[:xptr] = "xpointer(#{data['xptr']})"
+          end
+          params[:mdtype] = 'TEIHDR';
+          params[:label] = 'Work Metadata'
+          params[:loctype] = 'URL'
+        else
+          builder = Nokogiri::XML::Builder.new do |xml|
+            xml.record('xmlns' => 'http://lib.umich.edu/dlxs/metadata') {
+              data.keys.each do |key|
+                next if key.start_with?('@')
+                next if key == 'mimetype' # useless
+                xml.field(abbrev: key) {
+                  values = [ data[key] ].flatten
+                  values.each do |value|
+                    xml.value value
+                  end
+                }
+              end
+            }
+          end
+
+          metadata_filename = "files/#{data['@id'] || @objid}.metadata.xml"
+          # then builder is written to this file
+          @manifest << [ metadata_filename, builder.to_xml ]
+
+          params[:xlink] = { href: metadata_filename }
+          params[:mdtype] = 'OTHER';
+          params[:othermdtype] = 'DLXS ImageClass XML'
+          params[:label] = data['@label'] || 'Work Metadata'
+          params[:loctype] = 'URL'
         end
-        params[:mdtype] = 'TEIHDR';
-        params[:label] = 'Work Metadata'
-        params[:loctype] = 'URL'
-      else
-        builder = Nokogiri::XML::Builder.new do |xml|
-          xml.record('xmlns' => 'http://lib.umich.edu/dlxs/metadata') {
-            data.keys.each do |key|
-              xml.field(abbrev: key) {
-                values = [ data[key] ].flatten
-                values.each do |value|
-                  xml.value value
-                end
-              }
-            end
-          }
-        end
+        dmd_sec.set_md_ref(**params)
+        @mets.add_dmd_sec(dmd_sec)
 
-        metadata_filename = "#{@objid}.metadata.xml"
-        # then builder is written to this file
-
-        params[:xlink] = { href: metadata_filename }
-        params[:mdtype] = 'OTHER';
-        params[:othermdtype] = 'DLXS ImageClass XML'
-        params[:label] = 'Work Metadata'
-        params[:loctype] = 'URL'
       end
-      dmd_sec.set_md_ref(**params)
-      @mets.add_dmd_sec(dmd_sec)
     end
 
     def build_amdsec
@@ -307,9 +330,12 @@ module HaversackIt
 
     def build_structmap_div(parent, items, order: true)
       items.each_with_index do |item, seq|
-        params = { type: item['type'], orderlabel: item['orderlabel'], label: item['label']}
+        params = { type: item['type'], orderlabel: item['orderlabel'], label: [item['label']].flatten.join(' / ')}
         if order then
           params[:order] = item['seq'] || (seq + 1)
+        end
+        if item['idref']
+          params[:dmdid] = item['idref'].map{|idref| "DMD.#{idref.gsub(':', '.')}" }.join(' ')
         end
         div = METS::StructMap::Div.new(**params)
 
@@ -320,7 +346,7 @@ module HaversackIt
               PP.pp item, STDERR
             end
             if hrefs[0].start_with?('urn:') then
-              div.add_mptr(href: hrefs[0])
+              div.add_mptr(href: hrefs[0], loctype: 'URN')
             else
               fileid = @fileidcache[hrefs]
               div.add_fptr(fileid: fileid)
@@ -392,6 +418,14 @@ module HaversackIt
 
     def format_time(time)
       time.gmtime.strftime("%Y-%m-%dT%H:%M:%S")
+    end
+
+    def generate_id(prefix='', id=nil)
+      if id
+        "#{prefix}#{prefix ? '.' : ''}#{id.gsub(':', '.')}"
+      else
+        next_id(prefix)
+      end
     end
 
     def next_id(prefix='')

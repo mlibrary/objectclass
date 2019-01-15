@@ -270,7 +270,7 @@ module HaversackIt
             "struct:x" => medium[:istruct_x].to_i,
             "struct:y" => medium[:istruct_y].to_i,
             "struct:searchable" => ( medium[:m_searchable] == '1' ),
-            "idref" => "#{@collid}:#{medium[:m_id]}:#{medium[:m_iid]}",
+            "idref" => get_idref(medium),
             "files" => [
               {
                 "href" => "urn:umich:x-asset:#{asset_collid}:#{medium[:m_fn]}"
@@ -302,7 +302,7 @@ module HaversackIt
             "struct:y" => medium[:istruct_y].to_i,
             "struct:searchable" => ( medium[:m_searchable] == '1' ),
             "seq" => seq,
-            "idref" => "#{@collid}:#{medium[:m_id]}:#{medium[:m_iid]}",
+            "idref" => get_idref(medium),
             "files" => [
               {
                 "href" => "urn:umich:x-asset:#{asset_collid}:#{medium[:m_fn]}"
@@ -315,7 +315,13 @@ module HaversackIt
 
     def build_structmaps_physical(possible_structures)
       PP.pp @caption_keys, STDERR
-      @structmaps['physical'] << {"id" => @identifier, "label" => @common["dc:title"], "type" => "volume", "items" => []}
+      @structmaps['physical'] << {
+        "id" => @identifier,
+        "label" => @common["dc:title"],
+        "type" => "volume",
+        "idref" => [ "#{@collid}:#{@m_id}" ],
+        "items" => []
+      }
       page_type = "page"
       @media.each do |medium|
         asset_collid = medium[:m_source] || @collid
@@ -331,7 +337,7 @@ module HaversackIt
           page["label"] = page["label"].flatten.join(" ")
           page["label"].gsub!(/#{page_type}\s+/i, '')
         end
-        page["idref"] = "#{@collid}:#{medium[:m_id]}:#{medium[:m_iid]}" unless medium.keys.grep(/istruct_caption/).select{|key| @orderlabel_keys.index(key).nil? }.empty?
+        page["idref"] = get_idref(medium)
         page["files"] = [
             {
               "href" => "urn:umich:x-asset:#{asset_collid}:#{medium[:m_fn]}"
@@ -350,6 +356,18 @@ module HaversackIt
 
     def media_table
       @collection.config[:media_table].to_sym
+    end
+
+    def captions?(medium)
+      not medium.keys.grep(/istruct_caption/).select{|key| @orderlabel_keys.index(key).nil? }.empty?
+    end
+
+    def get_idref(medium)
+      idref = [ "#{@collid}:#{medium[:m_id]}" ] # the record
+      if captions?(medium)
+        idref << "#{@collid}:#{medium[:m_id]}:#{medium[:m_iid]}"
+      end
+      idref
     end
 
     def blank?(value)
