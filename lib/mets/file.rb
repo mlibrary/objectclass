@@ -28,10 +28,11 @@ module METS
 
     def set_local_file(local_file, path=nil)
       @local_file = local_file
+      @base_file = local_file.split('#')[0]
       @path = path or "."
       compute_md5_checksum if @attrs[:CHECKSUM].nil?
       if @attrs[:SIZE].nil? or @attrs[:CREATED].nil?
-        stat = ::File.stat(::File.join(@path, @local_file))
+        stat = ::File.stat(::File.join(@path, @base_file))
         size = stat.size
         mtime = stat.mtime.gmtime.strftime("%Y-%m-%dT%H:%M:%SZ")
         @attrs[:SIZE] = size unless @attrs[:SIZE]
@@ -42,7 +43,7 @@ module METS
 
     def compute_md5_checksum
       require 'digest'
-      file = ::File.join(@path, @local_file)
+      file = ::File.join(@path, @base_file)
       data = ::File.read(file)
       digest = Digest::MD5.hexdigest data
       @attrs[:CHECKSUM] = digest
@@ -69,7 +70,7 @@ module METS
     end
 
     def get_mimetype
-      filename = @local_file
+      filename = @base_file
       suffix = filename.split('.')[-1]
       if suffix and MIME_MAP[suffix]
         return MIME_MAP[suffix]

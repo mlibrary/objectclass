@@ -81,35 +81,128 @@ module HaversackIt
         tmp << part
         didno = tmp.join('.')
 
-        data = {"label" => "#{@parts[tmp.length]}", "items" => []}
+        data = {"label" => "#{@parts[tmp.length]}", "items" => {}}
+
+        next_idno = previous_idno = last_idno = nil
 
         fetch_data_url = "https://#{DLXS_SERVICE}/cgi/t/text/text-idx?cc=#{@collid};idno=#{didno};debug=xml"
         fetch_data_uri = URI(fetch_data_url)
         response = Net::HTTP.get_response(fetch_data_uri)
         doc = Nokogiri::XML(response.body)
         doc.xpath("//Picklist/Item").each do |item|
-          idno = item.xpath("string(./ItemHeader/HEADER//IDNO[@TYPE='dlps'])")
+          idno = item.xpath("string(./ItemHeader/HEADER//IDNO[@TYPE='dlps'])").downcase
           title = item.xpath("string(./ItemHeader/HEADER/FILEDESC/TITLESTMT/TITLE)").gsub(/\s+/, ' ')
-          data["items"] << {
+          # data["items"] << {
+          #   "title" => title,
+          #   "href"  => "urn:x-umich:work:#{idno}"
+          # }
+          data["items"][idno] = {
             "title" => title,
             "href"  => "urn:x-umich:work:#{idno}"
           }
+          STDERR.puts "-- > #{@idno} :: #{idno} :: #{last_idno}"
+          if idno == @idno
+            previous_idno = last_idno
+          elsif last_idno == @idno
+            next_idno = idno
+          end
+          last_idno = idno
         end
 
-        if data["items"].length > 1
-          @links['isPartOf'] << data
-        end
+        # if data["items"].length > 1
+        #   @links['isPartOf'] << data
+        # end
+
+        @links["up"] = { "title" => data["label"], "href" => "urn:x-umich:work:#{didno}" }
+        @links["prev"] = data["items"][previous_idno] if previous_idno
+        @links["next"] = data["items"][next_idno] if next_idno
 
       end
     end
 
-    def build_filegroups
-      @filegroups['encoded_text'] = []
-      @filegroups['bitonal'] = []
-      @filegroups['contone'] = []
+    def build_filesets
+      # add an entry for the full encoded text
+      # or should each of these be a file?
+      @filesets << {
+        "use" => "encoded_text",
+        "files" => [
+          {
+            "href" => "files/#{@idno}.xml",
+            "loctype" => "URL",
+            "mimetype" => "application/tei+xml",
+          }
+        ]
+      }
+      @files["encoded_text"] = @filesets[-1]
+
+      # get bitonal/contone from the database
+      @db[:Pageview].where(idno: @idno).order(:seq).each do |row|
+        group = row[:bpp] == 1 ? 'bitonal' : 'contone'
+        seq = row[:seq]
+        # @files[seq] = [] if @files[seq].nil?
+        if @files[seq].nil?
+          @filesets << {
+            "id"   => "SEQ#{seq}",
+            "files" => []
+          }
+          @files[seq] = @filesets[-1]
+        end
+
+        @files[seq]["files"] << {
+          "use" => group,
+          "href" => "files/#{row[:image]}",
+          "loctype" => "URL"
+        }
+        @manifest << Pathname.new(@identifier_pathname.join(row[:image]))
+      end
+
+      pb_node_track = {}
+      @text.xpath('./TEXT/BODY/DIV1').each do |div1_node|
+        node_id = div1_node['NODE']
+        div1_node.xpath('P').each do |p_node|
+          pb_node = p_node.at_xpath('PB')
+          seq = pb_node['SEQ']
+
+          ## href = %Q{#xpointer(/DLPSTEXTCLASS/TEXT/BODY/DIV[@NODE="#{node_id}"]/P[PB[@SEQ=\"#{pb_node['SEQ']}\"]])}
+          ## -- shortening after conversations with sooty
+          href = %Q{#xpointer(/DLPSTEXTCLASS/TEXT/BODY/DIV1//P[PB[@SEQ=\"#{pb_node['SEQ']}\"]][1])}
+
+          if @files[seq].nil?
+            @filesets << {
+              "id"   => "SEQ#{seq}",
+              "files" => []
+            }
+            @files[seq] = @filesets[-1]
+          end
+          # next if @files[seq] and @files[seq].index(href)
+          next if pb_node_track[seq]
+
+          @files[seq]["files"] << {
+            "use" => "encoded_text",
+            "href" => "#{@files["encoded_text"]["files"][0]["href"]}#{href}",
+            "loctype" => "URL"
+          }
+          pb_node_track[seq] = true
+
+          # @files[seq] << href
+          # pb_node_track[seq] = true
+          # @filesets['encoded_text'][-1]['files'] << {
+          #   "href" => href,
+          #   "loctype" => "URL",
+          #   "seq" => seq,
+          # }
+        end
+      end
+
+    end
+
+    def build_filegroups_original
+      @filesets['encoded_text'] = []
+      @filesets['bitonal'] = []
+      @filesets['contone'] = []
 
       # there's only one of these
-      @filegroups['encoded_text'] << {
+      @filesets['encoded_text'] << {
         # "href" => "files/#{@idno}.xml\#xpointer(/DLPSTEXTCLASS/TEXT)",
         "href" => "files/#{@idno}.xml",
         "loctype" => "URL",
@@ -122,12 +215,12 @@ module HaversackIt
         group = row[:bpp] == 1 ? 'bitonal' : 'contone'
         seq = row[:seq]
         @files[seq] = [] if @files[seq].nil?
-        @filegroups[group] << {
+        @filesets[group] << {
           "href" => "files/#{row[:image]}",
           "seq"  => seq,
           "loctype" => "URL"
         }
-        @files[seq] << @filegroups[group][-1]["href"]
+        @files[seq] << @filesets[group][-1]["href"]
         @manifest << Pathname.new(@identifier_pathname.join(row[:image]))
       end
 
@@ -148,7 +241,7 @@ module HaversackIt
 
           @files[seq] << href
           pb_node_track[seq] = true
-          @filegroups['encoded_text'][-1]['files'] << {
+          @filesets['encoded_text'][-1]['files'] << {
             "href" => href,
             "loctype" => "URL",
             "seq" => seq,
@@ -156,14 +249,14 @@ module HaversackIt
           # href = "files/#{pb_node['REF']}"
           # @manifest << Pathname.new(@identifier_pathname.join(pb_node['REF']))
           # @files[seq] << href
-          # @filegroups['bitonal'] << {
+          # @filesets['bitonal'] << {
           #   "href" => href
           # }
           # contone = @db[:Pageview].where(idno: @idno, bpp: 8, seq: seq).first
           # if contone
           #   href = "files/#{contone[:image]}"
           #   @manifest << Pathname.new(@identifier_pathname.join(contone[:image]))
-          #   @filegroups['contone'] << {
+          #   @filesets['contone'] << {
           #     "href" => href
           #   }
           #   @files[seq] << href
@@ -179,11 +272,11 @@ module HaversackIt
       ## this is actually the logical structmap
       @structmaps['physical'] << {"id" => @idno, "label" => @common["dc:title"], "type" => @common["dc:format"], "items" => []}
 
-      @files.keys.each do |seq|
+      @files.keys.select{|num| num.match?(/^\d+/)}.each do |seq|
         @structmaps['physical'][-1]['items'] << {
           "type" => "page",
           "seq"  => seq,
-          "files" => @files[seq].map{|v| { "href" => v }}
+          "href" => "#SEQ#{seq}"
         }
       end
 
@@ -192,8 +285,9 @@ module HaversackIt
         node_id = div1_node['NODE']
 
         if @encoding_level == '2'
+          @structmaps['logical'] << {"type" => "contents", "items" => []} if @structmaps['logical'].empty?
           div = {"id" => node_id, "label" => @div_labels[node_id], "type" => (@div_types[node_id] || 'section'), "items" => []}
-          @structmaps['logical'] << div
+          @structmaps['logical'][-1]['items'] << div
         end
 
         div1_node.xpath('P').each do |p_node|
@@ -271,17 +365,17 @@ module HaversackIt
 
     def make_page(pb_node)
       seq = pb_node['SEQ']
-      page = {"type" => "page", "seq" => seq}
+      page = {"type" => "page", "seq" => seq, "href" => "#SEQ#{seq}"}
       unless pb_node['N'].nil? or pb_node['N'].empty?
         page["orderlabel"] = pb_node['N']
       end
       if @SKIP_LABELS.index(pb_node['FTR']).nil? then
         page['label'] = pb_node['FTR']
       end
-      page["files"] = []
-      @files[seq].each do |href|
-        page["files"] << { "href" => href }
-      end
+      # page["files"] = []
+      # @files[seq].each do |href|
+      #   page["files"] << { "href" => href }
+      # end
       page
     end
 

@@ -19,6 +19,9 @@ option_parser = OptionParser.new do |opts|
   opts.on "--input_pathname [PATHNAME]" do |value|
     options.input_pathname = value
   end
+  opts.on "--idno [IDNO]" do |value|
+    options.input_pathname = "/quod-prep/prep/o/objectclass/.haversack/#{value}"
+  end
   opts.on "--debug" do
     options.debug = true
   end

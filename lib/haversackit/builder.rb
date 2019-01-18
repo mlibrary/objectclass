@@ -172,16 +172,80 @@ module HaversackIt
             data["memberOf"].each do |item|
               xml['dcam'].memberOf 'xlink:href': item['href'], 'xlink:title': item['title']
             end
+
+            [ "up", "prev", "next" ].each do |link|
+              next unless data[link]
+              STDERR.puts "=== #{link}"
+              datum = data[link]
+              xml['dcterms'].relation 'xlink:href': datum['href'], 'xlink:title': datum['title'], 'xlink:role': "dlxs:#{link}"
+            end
           }
         end
 
         nodes = builder.doc.root.element_children
-        dmd_sec = METS::MetadataSection.new 'dmdSec', id: 'DMDCOLLECTIONS'
+        dmd_sec = METS::MetadataSection.new 'dmdSec', id: 'DMDRELATED'
         dmd_sec.set_xml_node(nodes, mdtype: 'DC', label: 'In Collections')
         @mets.add_dmd_sec(dmd_sec)
       end
 
-      if data['isPartOf'] and not data['isPartOf'].empty?
+      # [ "up", "prev", "next" ].each do |link|
+      #   next unless data[link]
+      #   STDERR.puts "=== #{link}"
+      #   datum = data[link]
+      #   dmd_sec = METS::MetadataSection.new 'dmdSec', id: "DMDRELATED.#{link.upcase}"
+      #   params = {
+      #     xlink: { href: datum['href'], role: "http://lib.umich.edu/dlxs/roles/#{link}" },
+      #     label: datum['title'],
+      #     mdtype: 'OTHER',
+      #     othermdtype: 'METS',
+      #     **guess_loctype(datum['href']),
+      #     mimetype: 'application/xml',
+      #   }
+      #   dmd_sec.set_md_ref(**params)
+      #   @mets.add_dmd_sec(dmd_sec)
+      #   # xml.link rel: link, 'xlink:href': data[link]['href'], 'xlink:title': data[link]['title']
+      # end
+
+      # if data["next"] or data["up"] or data["prev"]
+      #   dmd_sec = METS::MetadataSection.new 'dmdSec', id: 'DMDRELATED'
+      #   [ "up", "prev", "next" ].each do |link|
+      #     next unless data[link]
+      #     STDERR.puts "=== #{link}"
+      #     datum = data[link]
+      #     params = {
+      #       xlink: { href: datum['href'], role: "http://lib.umich.edu/dlxs/roles/#{link}" },
+      #       label: datum['title'],
+      #       mdtype: 'OTHER',
+      #       othermdtype: 'METS',
+      #       **guess_loctype(datum['href']),
+      #       mimetype: 'application/xml',
+      #     }
+      #     dmd_sec.set_md_ref(**params)
+      #     # xml.link rel: link, 'xlink:href': data[link]['href'], 'xlink:title': data[link]['title']
+      #   end
+
+      #   @mets.add_dmd_sec(dmd_sec)
+      # end
+
+      # if data["next"] or data["up"] or data["prev"]
+      #   builder = Nokogiri::XML::Builder.new do |xml|
+      #     xml.root('xmlns' => 'http://lib.umich.edu/dlxs/metadata') {
+      #       [ "up", "prev", "next" ].each do |link|
+      #         next unless data[link]
+      #         STDERR.puts "=== #{link}"
+      #         xml.link rel: link, 'xlink:href': data[link]['href'], 'xlink:title': data[link]['title']
+      #       end
+      #     }
+      #   end
+
+      #   nodes = builder.doc.root.element_children
+      #   PP.pp nodes, STDERR
+      #   dmd_sec = METS::MetadataSection.new 'dmdSec', id: 'DMDRELATED'
+      #   dmd_sec.set_xml_node(nodes, mdtype: 'OTHER', othermdtype: 'DLXS', label: 'Related')
+      #   @mets.add_dmd_sec(dmd_sec)
+      # end
+
+      if false && data['isPartOf'] and not data['isPartOf'].empty?
         data['isPartOf'].each do |part|
           label = part['label'] || 'Part Of'
           builder = Nokogiri::XML::Builder.new do |xml|
@@ -281,6 +345,29 @@ module HaversackIt
     end
 
     def build_filesec
+      return unless ( filesets = @sources[:filesets] ? @sources[:filesets][:data] : nil )
+      filesets.each do |fileset|
+        attrs = {}
+        attrs[:use] = fileset["use"] if fileset["use"]
+        attrs[:id] = fileset["id"] || next_id('FG')
+        attrs[:assigner] = @assigner
+        filegroup = METS::FileGroup.new **attrs
+        fileset["files"].each_with_index do |file, seq|
+          @fileidcache[[file['href']]] = next_id('FID')
+          filegroup.add_file(
+            "#{file['href']}",
+            # seq: file['seq'],
+            path: File.join(@input_pathname),
+            mimetype: file['mimetype'],
+            use: file['use'],
+            id: @fileidcache[[file['href']]],
+          )
+        end
+        @mets.add_filegroup(filegroup)
+      end
+    end
+
+    def build_filesec_original
       # basically anything that's not a YAML file?
       filegroups = @sources.select{ |key, value| key.to_s.start_with?('files_') }
       filegroups.each do |filename, files|
@@ -352,6 +439,9 @@ module HaversackIt
               div.add_fptr(fileid: fileid)
             end
           end
+        elsif item['href'] then
+          fileid = item['href']
+          div.add_mptr(href: fileid, loctype: 'URL')
         end
 
         parent.add_div(div)

@@ -15,7 +15,8 @@ module METS
       METS.check_attr_val attrs[:loctype], METS::ALLOWED_LOCTYPE
       METS.check_attr_val attrs[:mdtype], METS::ALLOWED_MDTYPE
 
-      @mdref = METS.create_element(
+      @mdref = [] unless @mdref
+      mdref = METS.create_element(
         "mdRef",
         METS.copy_attributes(attrs, [
           'ID',
@@ -24,7 +25,8 @@ module METS
         ])
       )
 
-      METS.set_xlink(@mdref, attrs[:xlink]) unless attrs[:xlink].nil?
+      METS.set_xlink(mdref, attrs[:xlink]) unless attrs[:xlink].nil?
+      @mdref << mdref
     end
 
     def set_mdwrap(mdwrap)
@@ -76,7 +78,12 @@ module METS
 
     def to_node
       node = METS.create_element(@element_name, @attrs)
-      node << @mdref if @mdref
+      if @mdref
+        @mdref.each do |mdref|
+          node << mdref
+        end
+      end
+      # node << @mdref if @mdref
       node << @mdwrap if @mdwrap
       unless @components.empty?
         @components.each do |section|

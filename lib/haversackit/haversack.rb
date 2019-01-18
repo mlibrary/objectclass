@@ -34,7 +34,7 @@ module HaversackIt
       @links = {}
       @metadata = {}
       @rights = {}
-      @filegroups = {}
+      @filesets = []
       @files = {}
       @structmaps = {}
 
@@ -49,7 +49,7 @@ module HaversackIt
       build_rights
       build_source
       build_links
-      build_filegroups
+      build_filesets
       build_structmaps
     end
 
@@ -65,7 +65,7 @@ module HaversackIt
     end
     def build_links
     end
-    def build_filegroups
+    def build_filesets
     end
     def build_structmaps
     end
@@ -95,9 +95,11 @@ module HaversackIt
 
       output_yaml(output_path, "rights",   @rights)
 
-      @filegroups.keys.each do |type|
-        output_yaml(output_path, "files_#{type}", @filegroups[type])
-      end
+      output_yaml(output_path, "filesets", @filesets);
+
+      # @filesets.keys.each do |type|
+      #   output_yaml(output_path, "files_#{type}", @filesets[type])
+      # end
 
       @structmaps.keys.each do |type|
         output_yaml(output_path, "structmap_#{type}", @structmaps[type])
