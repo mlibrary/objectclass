@@ -4,7 +4,7 @@ module DLXS
   class Collection
     class ImageClass < DLXS::Collection
 
-      attr_accessor :xcoll_map, :admin_map, :ic_id
+      attr_accessor :xcoll_map, :admin_map, :ic_id, :config
 
       def load_config
 

@@ -14,14 +14,17 @@ end
 
 module HaversackIt
   class Haversack::ImageClass < Haversack
+
+    attr_accessor :idno
+
     def self.create(**argv)
       collid = argv[:collid]
       begin
         require_relative "image_class/#{collid}"
         transform_class = load_constant("HaversackIt::Haversack::ImageClass::#{collid.upcase}")
-        STDERR.puts "-- using enhanced #{transform_class}"
+        # STDERR.puts "-- using enhanced #{transform_class}"
       rescue LoadError => e
-        STDERR.puts "-- using standard #{transform_class} :: haversackit/haversack/image_class/#{collid}"
+        # STDERR.puts "-- using standard #{transform_class} :: haversackit/haversack/image_class/#{collid}"
         # STDERR.puts e
         transform_class = self
       end
@@ -314,7 +317,7 @@ module HaversackIt
     end
 
     def build_structmaps_physical(possible_structures)
-      PP.pp @caption_keys, STDERR
+      # PP.pp @caption_keys, STDERR
       @structmaps['physical'] << {
         "id" => @identifier,
         "label" => @common["dc:title"],
@@ -421,17 +424,20 @@ module HaversackIt
 
   module Batch
     class ImageClass
-      def self.create(collid:, m_id: nil)
-        self.new(collid: collid, m_id: m_id)
+      attr_accessor :db, :collection
+
+      def self.create(collid:, m_id: nil, n: nil)
+        self.new(collid: collid, m_id: m_id, n: n)
       end
 
-      def initialize(collid:, m_id: nil)
+      def initialize(collid:, m_id: nil, n: nil)
         @collid = collid
         @identifiers = [m_id].flatten.compact
         config = IniFile.load("#{ENV['DLXSROOT']}/bin/i/image/etc/package.conf")
         @db = Sequel.connect(adapter: 'mysql2', host: 'mysql-quod', user: config['mysql']['user'], password: config['mysql']['password'], database: 'dlxs')
         @collection = DLXS::Collection::ImageClass.new collid: @collid, db: @db
         @haversacks = []
+        @n = n
       end
 
       def build
@@ -451,9 +457,19 @@ module HaversackIt
         if @identifiers.empty?
           # gather identifiers, possibly in batch
           # q = @db[@collection.data_table].limit(10).select(:ic_id)
-          @db[@collection.data_table].select(:ic_id).limit(10).each do |row|
+
+          limit = @n.nil? ?  10 : @n
+          @db[@collection.data_table].join_table(
+            :left,
+            @collection.media_table,
+            m_id: :ic_id
+          ).where(istruct_ms: 'P').select(:ic_id).order(Sequel.function(:RAND)).limit(limit).each do |row|
             @identifiers << row[:ic_id]
           end
+
+          # @db[@collection.data_table].select(:ic_id).limit(10).each do |row|
+          #   @identifiers << row[:ic_id]
+          # end
         end
         @identifiers
       end

@@ -20,7 +20,8 @@ module HaversackIt
   class Haversack
 
     attr_reader :db
-    attr_reader :identifier_pathname
+    attr_reader :identifier_pathname, :idno
+    attr_reader :common, :source, :links, :metadata, :rights, :filesets, :files, :structmaps, :manifest
 
     def initialize(**args)
       if args[:db]

@@ -7,6 +7,8 @@ require 'yaml'
 require 'mime/types'
 require 'mets'
 
+require 'json'
+
 PARSE_OPTIONS = Nokogiri::XML::ParseOptions::DEFAULT_XML | Nokogiri::XML::ParseOptions::NOBLANKS
 
 module HaversackIt
@@ -193,6 +195,17 @@ module HaversackIt
       sources = @sources.keys.grep(/metadata/)
       return if sources.empty?
 
+      links = @sources[:links][:data]
+      schema = nil
+      links['memberOf'].each do |link|
+        if link['href'].index(':collection:')
+          schema = link['href'].gsub('collection', 'schema')
+        end
+      end
+      if schema.nil?
+        schema = 'urn:x-umich:schema:default'
+      end
+
       sources.each do |source|
 
         data = @sources[source][:data]
@@ -211,6 +224,26 @@ module HaversackIt
           params[:mdtype] = 'TEIHDR';
           params[:label] = 'Work Metadata'
           params[:loctype] = 'URL'
+        elsif data['mimetype'] and data['mimetype'] == 'text/dlxs+x-yaml'
+          # output as JSON
+          builder = {}
+          builder['@schema'] = schema
+          data.keys.each do |key|
+            next if key.start_with?('@')
+            next if key == 'mimetype' # useless
+            builder[key] = data[key]
+          end
+          metadata_filename = "files/#{data['@id'] || @objid}.metadata.json"
+          # then builder is written to this file
+          @manifest << [ metadata_filename, JSON.pretty_generate(builder) ]
+
+          params[:xlink] = { href: metadata_filename }
+          params[:mdtype] = 'OTHER';
+          params[:othermdtype] = 'DLXS ImageClass Metadata'
+          params[:mimetype] = 'application/json'
+          params[:label] = data['@label'] || 'Work Metadata'
+          params[:loctype] = 'URL'
+
         else
           builder = Nokogiri::XML::Builder.new do |xml|
             xml.record('xmlns' => 'http://lib.umich.edu/dlxs/metadata') {
