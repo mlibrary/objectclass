@@ -12,6 +12,8 @@ require 'fileutils'
 
 require 'inifile'
 
+require 'nanoid'
+
 PARSE_OPTIONS = Nokogiri::XML::ParseOptions::DEFAULT_XML | Nokogiri::XML::ParseOptions::NOBLANKS
 DLXS_SERVICE = "quod.lib.umich.edu"
 
@@ -28,7 +30,13 @@ module HaversackIt
         @db = args[:db]
       else
         config = IniFile.load("#{ENV['DLXSROOT']}/bin/i/image/etc/package.conf")
-        @db = Sequel.connect(adapter: 'mysql2', host: 'mysql-quod', user: config['mysql']['user'], password: config['mysql']['password'], database: 'dlxs')
+        @db = Sequel.connect(
+          adapter: 'mysql2',
+          host: config['mysql']['host'],
+          user: config['mysql']['user'],
+          password: config['mysql']['password'],
+          port: config['mysql']['port'] || 3306,
+          database: 'dlxs')
       end
       @common = {}
       @source = {}
@@ -112,8 +120,13 @@ module HaversackIt
             STDERR.puts "-- output: #{file[0]}"
             File.new(File.join(file_output_path, file[0]), "w").write(file[1])
           elsif file.is_a?(Pathname) and not File.symlink?(File.join(file_output_path, file.basename))
-            STDERR.puts "-- linking: #{file.basename}"
-            File.symlink(file, File.join(file_output_path, file.basename))
+            if @symlink
+              STDERR.puts "-- linking: #{file.basename}"
+              File.symlink(file, File.join(file_output_path, file.basename))
+            else
+              STDERR.puts "-- copying: #{file.basename}"
+              FileUtils.cp(file, File.join(file_output_path, file.basename))
+            end
           end
         end
       end
@@ -126,6 +139,10 @@ module HaversackIt
     end
 
     def setup_identifier_pathname
+    end
+
+    def generate_id
+      Nanoid.generate(alphabet: '1234567890abcdef')
     end
   end
 end

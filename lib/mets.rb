@@ -192,7 +192,7 @@ module METS
 			value = attrs_in[source_attr_name]
 			next if value.nil?
 			next if value.respond_to?(:empty?) and value.empty?
-			attrs_out[attr_name] = value
+			attrs_out[attr_name.to_sym] = value
 		end
 		attrs_out
 	end
