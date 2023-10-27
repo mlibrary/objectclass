@@ -43,6 +43,11 @@ module METS
       end
       node
     end
+
+    def empty?
+      @components.empty?
+    end
+
   end
 
   class StructMap::Div < StructMap
@@ -52,8 +57,18 @@ module METS
     end
 
     def add_fptr(**attrs)
+      pp AHOY: attrs
+      if attrs[:fileid] and attrs[:fileid][0] == '#'
+        attrs[:fileid] = attrs[:fileid][1..-1]
+      end
       fptr = METS.create_element('fptr',
         METS.copy_attributes(attrs, %w{ID FILEID CONTENTIDS}))
+
+      if attrs[:xptr]
+        area = METS.create_element('area',
+          BETYPE: 'xptr', 'BEGIN': attrs[:xptr])
+        fptr << area
+      end
 
       @components << fptr
     end

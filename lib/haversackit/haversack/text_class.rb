@@ -4,10 +4,11 @@ require 'net/http'
 
 module HaversackIt
   class Haversack::TextClass < Haversack
-    def initialize(collid:, idno:, parts:)
+    def initialize(collid:, idno:, parts:, symlink: true)
       @collid = collid
       @idno = idno.downcase
       @parts = parts
+      @symlink = symlink
 
       @SKIP_LABELS = ["", "UNSPEC", "UNS"]
       @div_labels = {}
@@ -37,6 +38,8 @@ module HaversackIt
       header.xpath('.//PROFILEDESC/TEXTCLASS/KEYWORDS/TERM').each do |term|
         @common['dc:subject'] << term.content
       end
+
+      @common['.nested'] = {}
     end
 
     def build_metadata
@@ -125,11 +128,13 @@ module HaversackIt
       # or should each of these be a file?
       @filesets << {
         "use" => "encoded_text",
+        "id"  => "#{@idno}--XML",
         "files" => [
           {
             "href" => "files/#{@idno}.xml",
             "loctype" => "URL",
             "mimetype" => "application/tei+xml",
+            "id" => "#{@idno}--#{generate_id}"
           }
         ]
       }
@@ -138,11 +143,12 @@ module HaversackIt
       # get bitonal/contone from the database
       @db[:Pageview].where(idno: @idno).order(:seq).each do |row|
         group = row[:bpp] == 1 ? 'bitonal' : 'contone'
-        seq = row[:seq]
+        seq = "%08d" % row[:seq].to_i
         # @files[seq] = [] if @files[seq].nil?
         if @files[seq].nil?
           @filesets << {
-            "id"   => "SEQ#{seq}",
+            "id"   => "#{@idno}--FILE#{seq}",
+            "group" => "BODY",
             "files" => []
           }
           @files[seq] = @filesets[-1]
@@ -151,159 +157,210 @@ module HaversackIt
         @files[seq]["files"] << {
           "use" => group,
           "href" => "files/#{row[:image]}",
-          "loctype" => "URL"
+          "mimetype" => get_mimetype(row[:image]),
+          "loctype" => "URL",
+          "id" => "#{@idno}--#{generate_id}"
         }
         @manifest << Pathname.new(@identifier_pathname.join(row[:image]))
       end
 
       pb_node_track = {}
-      @text.xpath('./TEXT/BODY/DIV1').each do |div1_node|
-        node_id = div1_node['NODE']
-        div1_node.xpath('P').each do |p_node|
-          pb_node = p_node.at_xpath('PB')
-          seq = pb_node['SEQ']
+      @groups = {}
 
-          ## href = %Q{#xpointer(/DLPSTEXTCLASS/TEXT/BODY/DIV[@NODE="#{node_id}"]/P[PB[@SEQ=\"#{pb_node['SEQ']}\"]])}
-          ## -- shortening after conversations with sooty
-          href = %Q{#xpointer(/DLPSTEXTCLASS/TEXT/BODY/DIV1//P[PB[@SEQ=\"#{pb_node['SEQ']}\"]][1])}
+      # what groups are here?
+      @text.xpath('./TEXT').first.element_children.each do |child|
+        # @groups << child.name unless @groups.index(child.name)
+        @groups[child.name] = child
+      end
 
-          if @files[seq].nil?
-            @filesets << {
-              "id"   => "SEQ#{seq}",
-              "files" => []
-            }
-            @files[seq] = @filesets[-1]
+      all_pb_nodes = @text.xpath('./TEXT//PB').to_a
+
+      all_pb_nodes.each do |pb_node|
+        seq = "%08d" % pb_node['SEQ'].to_i
+        pb_index = all_pb_nodes.index(pb_node)
+        next_pb_node = all_pb_nodes[pb_index + 1]
+        next_pb_found = false
+
+        # find the matching group
+        parent = pb_node.parent
+        while @groups.key(parent).nil?
+          parent = parent.parent
+        end
+        group = @groups.key(parent)
+
+        buffer = []
+
+        node = pb_node
+        while next_pb_found == false && node = node.next_sibling
+          if node.xpath('.//PB').first
+            # the next PB is inside this node
+            next_pb_found = true
+            buffer << crawl_for_pb(node, next_pb_node)
+          elsif node == next_pb_node
+            next_pb_found = true
+          else
+            buffer << node.content
           end
-          # next if @files[seq] and @files[seq].index(href)
-          next if pb_node_track[seq]
-
-          @files[seq]["files"] << {
-            "use" => "encoded_text",
-            "href" => "#{@files["encoded_text"]["files"][0]["href"]}#{href}",
-            "loctype" => "URL"
-          }
-          pb_node_track[seq] = true
-
-          # @files[seq] << href
-          # pb_node_track[seq] = true
-          # @filesets['encoded_text'][-1]['files'] << {
-          #   "href" => href,
-          #   "loctype" => "URL",
-          #   "seq" => seq,
-          # }
         end
-      end
 
-    end
+        # now find the next sibling of the pb_node parent
+        parent = pb_node.parent
+        while next_pb_found == false and parent = parent.next_sibling
+          parent.children.each do |child|
+            if child.name == 'PB' and child == next_pb_node
+              next_pb_found = true
+              break
+            elsif child.xpath(".//PB").first == next_pb_node
+              buffer << crawl_for_pb(child, next_pb_node)
+              next_pb_found = true
+            else
+              buffer << child.content
+            end
+          end
+        end
 
-    def build_filegroups_original
-      @filesets['encoded_text'] = []
-      @filesets['bitonal'] = []
-      @filesets['contone'] = []
+        if @files[seq].nil?
+          @filesets << {
+            "id"   => "#{@idno}--FILE#{seq}",
+            "group" => group,
+            "files" => []
+          }
+          @files[seq] = @filesets[-1]
+        end
 
-      # there's only one of these
-      @filesets['encoded_text'] << {
-        # "href" => "files/#{@idno}.xml\#xpointer(/DLPSTEXTCLASS/TEXT)",
-        "href" => "files/#{@idno}.xml",
-        "loctype" => "URL",
-        "mimetype" => "application/tei+xml",
-        "files" => []
-      }
-
-      # get bitonal/contone from the database
-      @db[:Pageview].where(idno: @idno).order(:seq).each do |row|
-        group = row[:bpp] == 1 ? 'bitonal' : 'contone'
-        seq = row[:seq]
-        @files[seq] = [] if @files[seq].nil?
-        @filesets[group] << {
-          "href" => "files/#{row[:image]}",
-          "seq"  => seq,
-          "loctype" => "URL"
+        @files[seq]["files"] << {
+          "use" => "plain_text",
+          "href" => "files/#{seq}.txt",
+          "mimetype" => "text/plain",
+          "loctype" => "URL",
+          "id" => "#{@idno}--#{generate_id}"
         }
-        @files[seq] << @filesets[group][-1]["href"]
-        @manifest << Pathname.new(@identifier_pathname.join(row[:image]))
-      end
-
-      pb_node_track = {}
-      @text.xpath('./TEXT/BODY/DIV1').each do |div1_node|
-        node_id = div1_node['NODE']
-        div1_node.xpath('P').each do |p_node|
-          pb_node = p_node.at_xpath('PB')
-          seq = pb_node['SEQ']
-
-          ## href = %Q{#xpointer(/DLPSTEXTCLASS/TEXT/BODY/DIV[@NODE="#{node_id}"]/P[PB[@SEQ=\"#{pb_node['SEQ']}\"]])}
-          ## -- shortening after conversations with sooty
-          href = %Q{#xpointer(/DLPSTEXTCLASS/TEXT/BODY/DIV1//P[PB[@SEQ=\"#{pb_node['SEQ']}\"]][1])}
-
-          @files[seq] = [] if @files[seq].nil?
-          next if @files[seq] and @files[seq].index(href)
-          next if pb_node_track[seq]
-
-          @files[seq] << href
-          pb_node_track[seq] = true
-          @filesets['encoded_text'][-1]['files'] << {
-            "href" => href,
-            "loctype" => "URL",
-            "seq" => seq,
-          }
-          # href = "files/#{pb_node['REF']}"
-          # @manifest << Pathname.new(@identifier_pathname.join(pb_node['REF']))
-          # @files[seq] << href
-          # @filesets['bitonal'] << {
-          #   "href" => href
-          # }
-          # contone = @db[:Pageview].where(idno: @idno, bpp: 8, seq: seq).first
-          # if contone
-          #   href = "files/#{contone[:image]}"
-          #   @manifest << Pathname.new(@identifier_pathname.join(contone[:image]))
-          #   @filesets['contone'] << {
-          #     "href" => href
-          #   }
-          #   @files[seq] << href
-          # end
+        @files[seq]["group"] = group
+        if @SKIP_LABELS.index(pb_node['FTR']).nil? then
+          @files[seq]['label'] = pb_node['FTR']
         end
+        unless pb_node['N'].nil? or pb_node['N'].empty?
+          @files[seq]["orderlabel"] = pb_node['N']
+          # @common['.nested']["#{@idno}--SEQ#{seq}"]["dc:title"] =
+          #   "#{@common["dc:title"]} - #{@files[seq]["orderlabel"]}"
+        end
+
+        @manifest << [ "#{seq}.txt",  buffer.join("\n") ]
       end
+
     end
 
     def build_structmaps
       @structmaps['physical'] = []
       @structmaps['logical'] = []
 
-      ## this is actually the logical structmap
-      @structmaps['physical'] << {"id" => @idno, "label" => @common["dc:title"], "type" => @common["dc:format"], "items" => []}
+      @structmaps['physical'] << {
+        "id" => @idno,
+        "label" => @common["dc:title"],
+        "type" => @common["dc:type"],
+        "href" => "##{@idno}--XML",
+        "items" => []
+      }
+
+      @groupmaps = {}
+      @groups.keys.each do |group|
+        @structmaps['physical'][-1]['items'] << {
+          "label" => group,
+          "type" => "q:group",
+          "items" => []
+        }
+        @groupmaps[group] = @structmaps['physical'][-1]['items'][-1]
+      end
+
+      pp @groupmaps
 
       @files.keys.select{|num| num.match?(/^\d+/)}.each do |seq|
-        @structmaps['physical'][-1]['items'] << {
+        group = @files[seq]["group"]
+        @groupmaps[group]['items'] << {
+          "id"   => "#{@idno}--SEQ#{seq}",
           "type" => "page",
           "seq"  => seq,
-          "href" => "#SEQ#{seq}"
+          "href" => "##{@idno}--FILE#{seq}",
+          "label" => @files[seq]["label"],
+          "orderlabel" => @files[seq]["orderlabel"],
         }
+
+        metadata = {}
+        metadata["dc:identifier"] = "#{@idno}--SEQ#{seq}"
+        orderlabel = @files[seq]["orderlabel"] || "##{seq.to_i}"
+        metadata["dc:title"] = "#{@common["dc:title"]} - #{orderlabel}"
+        @common['.nested']["#{@idno}--SEQ#{seq}"] = metadata
       end
 
       tracked_files = {}
-      @text.xpath('./TEXT/BODY/DIV1').each do |div1_node|
+      @text.xpath('./TEXT/node()/DIV1').each do |div1_node|
         node_id = div1_node['NODE']
+        STDERR.puts "== #{@encoding_level} :: #{node_id}"
 
         if @encoding_level == '2'
           @structmaps['logical'] << {"type" => "contents", "items" => []} if @structmaps['logical'].empty?
           div = {"id" => node_id, "label" => @div_labels[node_id], "type" => (@div_types[node_id] || 'section'), "items" => []}
           @structmaps['logical'][-1]['items'] << div
+
+          div1_node.xpath('P').each do |p_node|
+            pb_node = p_node.xpath('PB').first
+            div["items"] << make_page(pb_node) if ( @encoding_level == '2' )
+            break
+            # update_structmap_physical_div(pb_node)
+          end
         end
 
-        div1_node.xpath('P').each do |p_node|
-          pb_node = p_node.at_xpath('PB')
-          # @structmaps['physical'][-1]['items'] << make_page(pb_node) unless tracked_files[pb_node['SEQ']]
-          div["items"] << make_page(pb_node) if @encoding_level == '2'
-          # tracked_files[pb_node['SEQ']] = true
-          update_structmap_physical_div(pb_node)
+        if @encoding_level == '4'
+          # this structmap is just about the fulltext
+          # this might actually be an AREA
+          # fptr
+          # ...area
+          # .....@BETYPE=XPTR
+          # .....@BEGIN=//DIV1[@NODE=$NODE]
+
+          @structmaps['logical'] << {"type" => "contents", "items" => []} if @structmaps['logical'].empty?
+
+          # label = nil
+          # if false and div1_node.xpath('.//DOCTITLE/TITLEPART').first
+          #   label = div1_node.xpath('.//DOCTITLE/TITLEPART').first
+          #   label = label.children.first.content unless label.nil?
+          # elsif div1_node.xpath('./HEAD').first
+          #   label = div1_node.xpath('./HEAD').first
+          #   unless label.nil?
+          #     tmp = []
+          #     label.children.each do |child|
+          #       tmp << child.content
+          #     end
+          #     label = tmp.join(' ')
+          #   end
+          # end
+          # label = ( ! label.nil? ) ? label.children.first.content : div1_node['TYPE']
+
+          label = @div_labels[node_id]
+          div = {
+            "id" => node_id,
+            "label" => label,
+            "type" => (div1_node['TYPE'] || 'section'),
+            "files" => [
+              {
+                #{ }"href" => "##{@idno}--XML",
+                "href" => @files["encoded_text"]["files"][0]["href"],
+                "xptr" => "//DIV1[@NODE=\"#{node_id}\"]",
+              }
+            ]
+          }
+          @structmaps['logical'][-1]['items'] << div
+
         end
+
       end
     end
 
     def setup_identifier_pathname
       STDERR.puts "-- #{@idno} -- "
       Pathname.new(File.join(
-              "/quod/obj",
+              ENV['DLXSDATAROOT'],
+              'obj',
               @idno[0],
               @idno[1],
               @idno[2],
@@ -312,18 +369,21 @@ module HaversackIt
     end
 
     def fetch_data
-      fetch_uri = URI("https://#{DLXS_SERVICE}/cgi/t/text/text-idx?cc=#{@collid};idno=#{@idno};rgn=main;view=text;debug=xml")
-      response = Net::HTTP.get_response(fetch_uri)
-      ## this is not sufficient because DLXS does not return a correct status code on error
-      unless response.is_a?(Net::HTTPSuccess)
-        STDERR.puts "FAILED: #{response.code}"
-        PP.pp response, STDERR
-        exit
+      unless File.exists?("/tmp/#{@idno}.xml")
+        fetch_uri = URI("https://#{DLXS_SERVICE}/cgi/t/text/text-idx?cc=#{@collid};idno=#{@idno};rgn=main;view=text;debug=xml")
+        response = Net::HTTP.get_response(fetch_uri)
+        ## this is not sufficient because DLXS does not return a correct status code on error
+        unless response.is_a?(Net::HTTPSuccess)
+          STDERR.puts "FAILED: #{response.code}"
+          PP.pp response, STDERR
+          exit
+        end
+        File.open("/tmp/#{@idno}.xml", "w") { |f| f.write(response.body) }
       end
-      @xmldoc = Nokogiri::XML(response.body)
+      @xmldoc = Nokogiri::XML(File.open("/tmp/#{@idno}.xml").read)
       @text = @xmldoc.xpath('//DLPSTEXTCLASS').first
       @encoding_level = @text.xpath('string(./HEADER//EDITORIALDECL/@N)')
-      if @encoding_level == '2'
+      if @encoding_level == '2' || @encoding_level == '4'
         fetch_toc_data
       end
       @manifest << [ "#{@idno}.xml",  @text.to_xml ]
@@ -356,22 +416,29 @@ module HaversackIt
           unless extra.empty?
             label += " (#{extra.join('; ')})"
           end
-          @div_labels[node_id] = label
+          @div_labels[node_id] = label.gsub("\n", ' ').gsub(/\s+/, ' ')
         elsif head_node = div1_node.at_xpath('Divhead/HEAD')
-          @div_labels[node_id] = head_node.content
+          tmp = []
+          head_node.children.each do |child|
+            tmp << child.content.gsub("\n", ' ').gsub(/\s+/, ' ')
+          end
+          @div_labels[node_id] = tmp.join(" ").strip.gsub("\n", ' ').gsub(/\s+/, ' ')
+        else
+          @div_labels[node_id] = div1_node['TYPE']
         end
       end
     end
 
     def make_page(pb_node)
-      seq = pb_node['SEQ']
-      page = {"type" => "page", "seq" => seq, "href" => "#SEQ#{seq}"}
+      seq = "%08d" % pb_node['SEQ'].to_i
+      page = {"type" => "page", "seq" => seq, "href" => "##{@idno}--SEQ#{seq}"}
       unless pb_node['N'].nil? or pb_node['N'].empty?
         page["orderlabel"] = pb_node['N']
       end
       if @SKIP_LABELS.index(pb_node['FTR']).nil? then
         page['label'] = pb_node['FTR']
       end
+
       # page["files"] = []
       # @files[seq].each do |href|
       #   page["files"] << { "href" => href }
@@ -385,10 +452,45 @@ module HaversackIt
       return if page.nil?
       unless pb_node['N'].nil? or pb_node['N'].empty?
         page["orderlabel"] = pb_node['N']
+        @common['.nested']["#{@idno}--SEQ#{seq}"]["dc:title"] =
+          "#{@common["dc:title"]} - #{page["orderlabel"]}"
       end
       if @SKIP_LABELS.index(pb_node['FTR']).nil? then
         page['label'] = pb_node['FTR']
       end
+    end
+
+    def get_mimetype(filename)
+      ext = filename.split(".")[-1]
+      if ext == 'gif'
+        return 'image/gif'
+      elsif ext == 'tif'
+        return 'image/tiff'
+      elsif ext == 'jp2'
+        return 'image/jp2'
+      else
+        return 'application/octet-stream'
+      end
+    end
+
+    def crawl_for_pb(node, target)
+      buffer = []
+      queue = []
+      node.children.reverse.each do |child|
+        queue.unshift(child)
+      end
+      while node_ = queue.shift
+        if node_ == target
+          break
+        elsif node_.xpath('.//PB').first == target
+          node_.children.reverse.each do |child|
+            queue.unshift(child)
+          end
+        else
+          buffer << node_.content
+        end
+      end
+      return buffer.join("\n")
     end
 
   end

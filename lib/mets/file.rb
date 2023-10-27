@@ -18,7 +18,7 @@ module METS
 
     def initialize(filegroup, **attrs)
       @attrs = METS.copy_attributes(attrs,
-        ['ID', 'SEQ', METS::FILECORE, 'OWNERID', 'ADMID', 'DMDID', 'GROUPID', 'USE', 'BEGIN', 'END', 'BETYPE']
+        ['ID', 'SEQ', METS::FILECORE, 'OWNERID', 'ADMID', 'DMDID', 'GROUPID', 'USE', 'BEGIN', 'END', 'BETYPE', 'MIMETYPE']
       )
       @loctype = attrs[:loctype] || 'URL'
       @otherloctype = attrs[:otherloctype]
@@ -27,16 +27,21 @@ module METS
     end
 
     def set_local_file(local_file, path=nil)
+      # pp @attrs
       @local_file = local_file
-      @base_file = local_file.split('#')[0]
-      @path = path or "."
-      compute_md5_checksum if @attrs[:CHECKSUM].nil?
-      if @attrs[:SIZE].nil? or @attrs[:CREATED].nil?
-        stat = ::File.stat(::File.join(@path, @base_file))
-        size = stat.size
-        mtime = stat.mtime.gmtime.strftime("%Y-%m-%dT%H:%M:%SZ")
-        @attrs[:SIZE] = size unless @attrs[:SIZE]
-        @attrs[:CREATED] = mtime unless @attrs[:CREATED]
+      if local_file.index('#')
+        # do nothing
+      else
+        @base_file = local_file.split('#')[0]
+        @path = path or "."
+        compute_md5_checksum if @attrs[:CHECKSUM].nil?
+        if @attrs[:SIZE].nil? or @attrs[:CREATED].nil?
+          stat = ::File.stat(::File.join(@path, @base_file))
+          size = stat.size
+          mtime = stat.mtime.gmtime.strftime("%Y-%m-%dT%H:%M:%SZ")
+          @attrs[:SIZE] = size unless @attrs[:SIZE]
+          @attrs[:CREATED] = mtime unless @attrs[:CREATED]
+        end
       end
       @attrs[:MIMETYPE] = get_mimetype unless @attrs[:MIMETYPE]
     end
@@ -55,7 +60,7 @@ module METS
       if @local_file
         flocat = METS.create_element('FLocat', loctype)
         # need to do some scaping
-        METS.set_xlink(flocat, { href: @local_file })
+        METS.set_xlink(flocat, { href: ::File.basename(@local_file) })
         node << flocat
       end
       @components.each do |item|

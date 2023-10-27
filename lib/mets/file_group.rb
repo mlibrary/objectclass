@@ -38,7 +38,8 @@ module METS
       if attrs[:id].nil?
         attrs[:id] = assign_id(attrs[:prefix], filename)
       end
-      attrs[:seq] = next_seq unless attrs[:seq]
+      attrs[:seq] = next_seq if attrs[:seq].nil?
+      attrs.delete(:seq) if attrs[:seq] == false
       path = attrs.delete(:path)
       # checksum path logic...
       file = METS::File.new(self, **attrs)

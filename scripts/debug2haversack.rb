@@ -11,9 +11,10 @@ require 'optparse'
 require 'ostruct'
 
 options = OpenStruct.new
-options.output_pathname = '/quod-prep/prep/o/objectclass/.haversack'
+options.output_pathname = "/quod-prep/prep/o/objectclass/.haversack"
 options.debug = false
 options.parts = { 1=> "Title", 2=>"Volume"}
+options.symlink = true
 option_parser = OptionParser.new do |opts|
   opts.on "--collid [COLLID]" do |value|
     options.collid = value
@@ -22,6 +23,9 @@ option_parser = OptionParser.new do |opts|
     options.idno = value
   end
   opts.on "--output_pathname [PATHNAME]" do |value|
+    if value == ':local'
+      value = "#{ENV['DLXSROOT']}/prep/o/objectclass/.haversack"
+    end
     options.output_pathname = value
   end
   opts.on "--part.1 [VALUE]" do |value|
@@ -33,10 +37,17 @@ option_parser = OptionParser.new do |opts|
   opts.on "--debug" do
     options.debug = true
   end
+  opts.on "--no-symlink" do
+    options.symlink = false
+  end
 end
 option_parser.parse!(ARGV)
 
-prep = HaversackIt::Haversack::TextClass.new(collid: options[:collid], idno: options[:idno], parts: options[:parts])
+prep = HaversackIt::Haversack::TextClass.new(
+  collid: options[:collid],
+  idno: options[:idno],
+  parts: options[:parts],
+  symlink: options[:symlink])
 prep.build
 prep.save!(options[:output_pathname])
 

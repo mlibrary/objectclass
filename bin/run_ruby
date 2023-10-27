@@ -1,9 +1,12 @@
 #!/bin/bash
 
-PATH="/l/local/rbenv/bin:/l/local/rbenv/shims:$PATH"
-export PATH
+if [ -d "/l/local/rbenv/bin" -a ":$PATH:" != *":/l/local/rbenv/bin:"* ]
+then
+  PATH="/l/local/rbenv/bin:/l/local/rbenv/shims:$PATH"
+  export PATH
+fi
+
 BINPATH=`dirname $0`
-# export RBENV_VERSION=`cat $BINPATH/.ruby-version`
 export BUNDLE_GEMFILE=$BINPATH/Gemfile
 if [ -f "Gemfile" ]
     then

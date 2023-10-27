@@ -33,10 +33,8 @@ module HaversackIt
       @input_pathname = input_pathname
       @output_pathname = output_pathname
       @objid = @identifier = File.basename(@input_pathname)
-      @mets = METS::Document.new objid: @objid
       @assigner = Assigner.new
       @sources = {}
-      @amdsecs = []
       @manifest = []
       @fileidcache = {}
       Dir.glob("#{input_pathname}/**/*.yaml").each do |filename|
@@ -56,23 +54,37 @@ module HaversackIt
       end
       bag = HaversackIt::Bag.new bag_pathname
 
-      # bag.add_file("README.txt") do |io|
-      #   io.puts "Hello: #{Time.now.strftime("%Y-%m-%d %H:%M:%S")}"
-      # end
+      physical_structmap = @sources.select{ |key, value| key.to_s.start_with?('structmap_physical') }
+      objects = []
+      queue = [ physical_structmap[:structmap_physical][:data] ].flatten
+      while item = queue.shift
+        objects << item if item["id"]
+        if item["items"]
+          item["items"].reverse.each do |item_|
+            # objects << item_
+            queue.unshift item_
+          end
+        end
+      end
 
-      bag.add_file("#{@identifier}/#{@identifier}.mets.xml") do |io|
-        io.puts to_xml
+      # objects.each do |object|
+      #   pp ID: object['id'], TYPE: object['type']
+      # end
+      # exit
+
+      objects.each do |item|
+        STDERR.puts "-- #{item['id']}"
+        bag.add_file("#{item['id']}.mets.xml") do |io|
+          io.puts to_xml(item)
+        end
       end
 
       @manifest.each do |file|
         if file.is_a?(Array)
-          STDERR.puts "-- output: #{file[0]}"
-          bag.add_file(File.join(@identifier, file[0])) do |io|
+          # STDERR.puts "-- output: #{file[0]}"
+          bag.add_file(File.join(file[0])) do |io|
             io.puts file[1]
           end
-        # elsif file.is_a?(Pathname) and not File.symlink?(File.join(file_output_path, file.basename))
-        #   STDERR.puts "-- linking: #{file.basename}"
-        #   File.symlink(file, File.join(file_output_path, file.basename))
         end
       end
 
@@ -81,11 +93,13 @@ module HaversackIt
           # filename = input_filename.sub(builder.input_pathname, '')
           # filename = filename[1..-1] if filename[0] == '/'
           STDERR.puts "#{input_filename} :: #{File.symlink?(input_filename) ? '*' : ':'}"
+          output_filename = input_filename.gsub("files/", "")
           if File.symlink?(input_filename)
             true_filename = File.readlink(input_filename)
-            bag.add_symlink(File.join(@identifier, input_filename), true_filename)
+            bag.add_symlink(output_filename, true_filename)
+            # bag.add_symlink(File.join(@identifier, input_filename), true_filename)
           else
-            bag.add_file(File.join(@identifier, input_filename), input_filename)
+            bag.add_file(output_filename, input_filename)
           end
         end
       end
@@ -142,10 +156,17 @@ module HaversackIt
     def build_common_dmdsec
       source = @sources[:common]
 
-      data = source[:data]
+      data = source[:data].dup
+      if data['.nested'][@objid]
+        data['.nested'][@objid].keys.each do |key|
+          data[key] = data['.nested'][@objid][key]
+        end
+      end
+
       builder = Nokogiri::XML::Builder.new do |xml|
         xml.root('xmlns:dcterms' => 'http://purl.org/dc/terms/') {
           data.keys.each do |key|
+            next if key == '.nested'
             tag = key.split(":")[-1]
             if data[key]
               values = [ data[key] ].flatten
@@ -164,35 +185,54 @@ module HaversackIt
     end
 
     def build_links_dmdsec
-      source = @sources[:links]
-      return unless source
+      if @objid == @identifier
+        source = @sources[:links]
+        return unless source
+      else
+        source = { data: {} }
+        source[:data]["isPartOf"] = []
+        source[:data]["isPartOf"] << { 'href' => "urn:quombat:objects:#{@identifier}", 'title' => @sources[:common][:data]["dc:title"] }
+      end
 
       data = source[:data]
-      if data['memberOf']
+      if data.keys & [ 'memberOf', 'isPartOf', 'up', 'prev', 'next' ]
         builder = Nokogiri::XML::Builder.new do |xml|
           xml.root('xmlns:dcterms' => 'http://purl.org/dc/terms/', 'xmlns:dcam' => 'http://purl.org/dc/dcam/') {
-            data["memberOf"].each do |item|
-              xml['dcam'].memberOf 'xlink:href': item['href'], 'xlink:title': item['title']
+            if data['memberOf']
+              data["memberOf"].each do |item|
+                xml['dcam'].memberOf 'xlink:href': item['href'], 'xlink:title': item['title']
+              end
             end
 
             [ "up", "prev", "next" ].each do |link|
               next unless data[link]
-              STDERR.puts "=== #{link}"
+              # STDERR.puts "=== #{link}"
               datum = data[link]
               xml['dcterms'].relation 'xlink:href': datum['href'], 'xlink:title': datum['title'], 'xlink:role': "dlxs:#{link}"
             end
+
+            if data['isPartOf']
+              data["isPartOf"].each do |item|
+                xml['dcterms'].isPartOf 'xlink:href': item['href'], 'xlink:title': item['title']
+              end
+            end
           }
         end
-
         nodes = builder.doc.root.element_children
         dmd_sec = METS::MetadataSection.new 'dmdSec', id: 'DMDRELATED'
-        dmd_sec.set_xml_node(nodes, mdtype: 'DC', label: 'In Collections')
+        dmd_sec.set_xml_node(nodes, mdtype: 'DC', label: 'Related Objects')
         @mets.add_dmd_sec(dmd_sec)
       end
     end
 
     def build_metadata_dmdsec
-      sources = @sources.keys.grep(/metadata/)
+      # sources = @sources.keys.grep(/metadata/)
+      if @objid == @identifier
+        sources = [ 'metadata' ]
+      else
+        key = "metadata_#{@objid}"
+        sources = @sources.keys.grep(/#{key}/)
+      end
       return if sources.empty?
 
       links = @sources[:links][:data]
@@ -208,6 +248,7 @@ module HaversackIt
 
       sources.each do |source|
 
+        next unless @sources[source]
         data = @sources[source][:data]
 
         dmd_id = generate_id('DMD', data['@id'])
@@ -289,6 +330,7 @@ module HaversackIt
     end
 
     def build_amdsec_sourcemd
+      return unless @objid == @identifier
       return unless ( source = @sources[:source] ? @sources[:source][:data] : nil )
       amd_sec = METS::MetadataSection.new 'sourceMD', id: next_id('AMD')
       params = build_mdref(source)
@@ -301,56 +343,31 @@ module HaversackIt
 
     def build_filesec
       return unless ( filesets = @sources[:filesets] ? @sources[:filesets][:data] : nil )
+      possible_filesets = [ @item['href'][1..-1] ]
       filesets.each do |fileset|
+        next unless possible_filesets.index(fileset["id"])
         attrs = {}
         attrs[:use] = fileset["use"] if fileset["use"]
         attrs[:id] = fileset["id"] || next_id('FG')
         attrs[:assigner] = @assigner
         filegroup = METS::FileGroup.new **attrs
         fileset["files"].each_with_index do |file, seq|
-          @fileidcache[[file['href']]] = next_id('FID')
+          @fileidcache[[file['href']]] = file['id'] || next_id('FID')
+          href = file['href'].dup
+          if href.is_a?(Array)
+            # href[0] = "bag://#{@identifier}/data/#{@identifier}/#{href[0]}"
+            href[0] = "urn:quombat:#{@identifier}:file:#{href[0]}"
+            href = href.join('')
+          end
           filegroup.add_file(
-            "#{file['href']}",
+            href,
             # seq: file['seq'],
+            seq: false,
             path: File.join(@input_pathname),
             mimetype: file['mimetype'],
             use: file['use'],
             id: @fileidcache[[file['href']]],
           )
-        end
-        @mets.add_filegroup(filegroup)
-      end
-    end
-
-    def build_filesec_original
-      # basically anything that's not a YAML file?
-      filegroups = @sources.select{ |key, value| key.to_s.start_with?('files_') }
-      filegroups.each do |filename, files|
-        use = filename.to_s.sub('files_', '')
-        filegroup = METS::FileGroup.new id: next_id('FG'), use: use, assigner: @assigner
-        files[:data].each_with_index do |file, seq|
-          @fileidcache[[file['href']]] = next_id('FID')
-          filegroup.add_file(
-            "#{file['href']}",
-            seq: file['seq'],
-            path: File.join(@input_pathname),
-            mimetype: file['mimetype'],
-            id: @fileidcache[[file['href']]],
-          )
-          if file['files'] then
-            file['files'].each_with_index do |subfile, subidx|
-            # @fileidcache[[file['href'], subfile['href']]] = next_id('FID')
-              @fileidcache[[subfile['href']]] = next_id('FID')
-              seq = subfile['seq'] || "%08d" % (subidx + 1)
-              filegroup.components[-1].add_sub_file(
-                subfile['href'],
-                id: @fileidcache[[subfile['href']]], # @fileidcache[[file['href'], subfile['href']]],
-                seq: seq,
-                loctype: subfile['loctype'],
-                otherloctype: subfile['otherloctype']
-              )
-            end
-          end
         end
         @mets.add_filegroup(filegroup)
       end
@@ -364,14 +381,72 @@ module HaversackIt
 
         structmap = METS::StructMap.new type: type
 
-        build_structmap_div(structmap, value[:data], order: false)
+        if type == 'physical'
+          if @objid == @identifier
+            build_structmap_physical_object(structmap, value[:data], order: false)
+          else
+            build_structmap_physical_nested(structmap, value[:data], order: false)
+          end
+        elsif @objid == @identifier
+          build_structmap_div(structmap, value[:data], order: false)
+        end
 
-        @mets.add_struct_map(structmap)
+        @mets.add_struct_map(structmap) unless structmap.empty?
       end
+    end
+
+    def build_structmap_physical_object(parent, items, order: true)
+      items.each_with_index do |item, seq|
+        params = { type: item['type'], orderlabel: item['orderlabel'], label: [item['label']].flatten.join(' / ')}
+        if order then
+          params[:order] = item['seq'] || (seq + 1)
+        end
+        if item['idref']
+          params[:dmdid] = item['idref'].map{|idref| "DMD.#{idref.gsub(':', '.')}" }.join(' ')
+        end
+        div = METS::StructMap::Div.new(**params)
+        parent.add_div(div)
+        if item["items"]
+          build_structmap_div_links(div, item["items"])
+        end
+      end
+    end
+
+    def build_structmap_div_links(parent, items, order: true)
+      items.each_with_index do |item, seq|
+        params = { type: item['type'], orderlabel: item['orderlabel'], label: [item['label']].flatten.join(' / ')}
+        if order then
+          params[:order] = item['seq'] || (seq + 1)
+        end
+        div = METS::StructMap::Div.new(**params)
+        if item['files']
+          item['files'].each do |file|
+            hrefs = [ file['href'] ].flatten
+            fileid = @fileidcache[hrefs] || hrefs
+            div.add_fptr(fileid: fileid, xptr: file['xptr'])
+          end
+        end
+        if item['href'] then
+          fileid = item['id']
+          div.add_mptr(href: "bag://#{@identifier}/data/#{fileid}", loctype: 'URL')
+        end
+        parent.add_div(div)
+        if item['items'] then
+          build_structmap_div_links(div, item['items'])
+        end
+      end
+    end
+
+    def build_structmap_physical_nested(parent, items, order: true)
+      # find the item from the main structmap
+      item = items[0]["items"].select{|i| i["id"] == @objid }.first
+      build_structmap_div(parent, [item], order: order)
     end
 
     def build_structmap_div(parent, items, order: true)
       items.each_with_index do |item, seq|
+        next if item.nil?
+        # pp AHOY: 'div', ITEM: item
         params = { type: item['type'], orderlabel: item['orderlabel'], label: [item['label']].flatten.join(' / ')}
         if order then
           params[:order] = item['seq'] || (seq + 1)
@@ -390,8 +465,9 @@ module HaversackIt
             if hrefs[0].start_with?('urn:') then
               div.add_mptr(href: hrefs[0], loctype: 'URN')
             else
-              fileid = @fileidcache[hrefs]
-              div.add_fptr(fileid: fileid)
+              PP.pp file, STDERR
+              fileid = @fileidcache[hrefs] || hrefs[0]
+              div.add_fptr(fileid: fileid, xptr: file['xptr'])
             end
           end
         elsif item['href'] then
@@ -402,32 +478,8 @@ module HaversackIt
         parent.add_div(div)
 
         if item['items'] then
+          # pp AHOY: 'nested', ITEM: item
           build_structmap_div(div, item['items'])
-        end
-      end
-    end
-
-    def xxbuild_structmap_div(parent, items, order: true)
-      if items[0]['href'] then
-        files = items.map{|v| v['href']}
-        adding_mptr = items[0]['href'].start_with?('urn:')
-        files.each do |filename|
-          if adding_mptr then
-            parent.add_mptr(href: filename)
-          else
-            fileid = @fileidcache[filename]
-            parent.add_fptr(fileid: fileid)
-          end
-        end
-      else
-        items.each_with_index do |item, seq|
-          params = { type: item['type'], orderlabel: item['orderlabel'], label: item['label']}
-          if order then
-            params[:order] = seq + 1
-          end
-          div = METS::StructMap::Div.new(**params)
-          parent.add_div(div)
-          build_structmap_div(div, item['items']) if item['items']
         end
       end
     end
@@ -456,7 +508,14 @@ module HaversackIt
       struct_map
     end
 
-    def to_xml
+    def to_xml(item)
+
+      @item = item
+      @objid = item["id"]
+
+      @amdsecs = []
+      @mets = METS::Document.new objid: @objid
+
       build_metadata
       @mets.to_node.to_s
     end

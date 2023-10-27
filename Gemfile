@@ -15,5 +15,7 @@ gem 'pry'
 gem 'inifile'
 gem 'mime-types'
 
+gem 'nanoid'
+
 # RUBY
 gem 'mysql2', platforms: [ :ruby ]
